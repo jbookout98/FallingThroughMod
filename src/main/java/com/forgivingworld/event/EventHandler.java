@@ -21,9 +21,9 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
-import net.minecraftforge.event.TickEvent;
-import net.minecraftforge.event.entity.living.LivingHurtEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.neoforge.event.entity.living.LivingDamageEvent;
+import net.neoforged.neoforge.event.tick.PlayerTickEvent;
 
 import java.util.*;
 
@@ -42,10 +42,10 @@ public class EventHandler
     private static final Map<UUID, Long>    lastTpTime   = new HashMap<>();
 
     @SubscribeEvent
-    public static void onPlayerTick(final TickEvent.PlayerTickEvent event)
+    public static void onPlayerTick(final PlayerTickEvent.Post event)
     {
-        final Player player = event.player;
-        if (player.level().isClientSide() || player.level().getGameTime() % 80 != 0 || player.isRemoved() || event.phase == TickEvent.Phase.START)
+        final Player player = event.getEntity();
+        if (player.level().isClientSide() || player.level().getGameTime() % 80 != 0 || player.isRemoved())
         {
             return;
         }
@@ -152,7 +152,7 @@ public class EventHandler
     }
 
     @SubscribeEvent
-    public static void onVoidDamageRecv(final LivingHurtEvent event)
+    public static void onVoidDamageRecv(final LivingDamageEvent.Pre event)
     {
         if (event.getSource().is(DamageTypes.FELL_OUT_OF_WORLD))
         {
@@ -188,7 +188,7 @@ public class EventHandler
 
                     if (tryTpPlayer(playerEntity, data))
                     {
-                        event.setAmount(0);
+                        event.setNewDamage(0);
                         break;
                     }
                 }

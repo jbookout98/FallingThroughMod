@@ -3,11 +3,11 @@ package com.forgivingworld;
 import com.cupboard.config.CupboardConfig;
 import com.forgivingworld.config.CommonConfiguration;
 import com.forgivingworld.event.EventHandler;
-import net.minecraftforge.fml.IExtensionPoint;
-import net.minecraftforge.fml.ModLoadingContext;
-import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
-import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
+import net.neoforged.bus.api.IEventBus;
+import net.neoforged.fml.ModContainer;
+import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
+import net.neoforged.neoforge.common.NeoForge;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -24,11 +24,10 @@ public class ForgivingWorldMod
     public static       CupboardConfig<CommonConfiguration> config = new CupboardConfig<>(MODID, new CommonConfiguration());
     public static       Random                              rand   = new Random();
 
-    public ForgivingWorldMod()
+    public ForgivingWorldMod(IEventBus modEventBus, ModContainer modContainer)
     {
-        ModLoadingContext.get().registerExtensionPoint(IExtensionPoint.DisplayTest.class, () -> new IExtensionPoint.DisplayTest(() -> "", (c, b) -> true));
-        Mod.EventBusSubscriber.Bus.FORGE.bus().get().register(EventHandler.class);
-        FMLJavaModLoadingContext.get().getModEventBus().addListener(this::setup);
+        NeoForge.EVENT_BUS.register(EventHandler.class);
+        modEventBus.addListener(this::setup);
     }
 
     private void setup(final FMLCommonSetupEvent event)
