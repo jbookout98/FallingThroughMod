@@ -1,7 +1,6 @@
 package com.fallingthrough.config;
 
 import com.cupboard.config.ICommonConfig;
-import com.fallingthrough.FallingthroughMod;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -117,15 +116,14 @@ public class CommonConfiguration implements ICommonConfig
         teleportLeashed = data.get("teleportLeashed").getAsJsonObject().get("teleportLeashed").getAsBoolean();
         instantTeleport = data.get("instantTeleport").getAsJsonObject().get("instantTeleport").getAsBoolean();
 
-            final JsonArray dimensionData = data.get(DIMENSIONCON).getAsJsonArray();
-            dimensionDataList.clear();
-            dimensionConnections.clear();
-            for (final JsonElement element : dimensionData)
-            {
-                final DimensionData newData = new DimensionData((JsonObject) element);
-                dimensionDataList.add(newData);
-                dimensionConnections.computeIfAbsent(newData.from, n -> new ArrayList<>()).add(newData);
-            }
-
+        final JsonArray dimensionData = data.get(DIMENSIONCON).getAsJsonArray();
+        dimensionDataList.clear();
+        dimensionConnections.clear();
+        for (final JsonElement element : dimensionData)
+        {
+            final DimensionData newData = new DimensionData((JsonObject) element);
+            dimensionDataList.add(newData);
+            dimensionConnections.computeIfAbsent(newData.from, n -> new ArrayList<>()).add(newData);
+        }
     }
 }
