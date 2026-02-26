@@ -19,7 +19,7 @@ public class CommonConfiguration implements ICommonConfig
     private final static String DIMENSIONCON = "dimensionconnections";
 
     public  Map<ResourceLocation, List<DimensionData>> dimensionConnections  = new HashMap<>();
-    private List<DimensionData>                        dimensionDataList     = new ArrayList<>();
+    public List<DimensionData>                        dimensionDataList     = new ArrayList<>();
     public  boolean                                    disableVanillaPortals = false;
     public  boolean                                    instantTeleport       = false;
     public  boolean                                    teleportLeashed       = true;
@@ -30,6 +30,41 @@ public class CommonConfiguration implements ICommonConfig
 
     public CommonConfiguration()
     {
+        final ResourceLocation aetherDim = new ResourceLocation("aether", "the_aether");
+        final ResourceLocation endDim    = Level.END.location();
+
+        // 1. Overworld → Aether
+        final DimensionData owToAether = new DimensionData(OVERWORLD.location(), aetherDim, DimensionData.SPAWNTYPE.AIR);
+        owToAether.belowY = -64;
+        owToAether.aboveY = 350;
+        owToAether.slowFallDuration = 400;
+        owToAether.teleportToYlevel = 130;
+        dimensionDataList.add(owToAether);
+
+        // 2. Aether → The End
+        final DimensionData aetherToEnd = new DimensionData(aetherDim, endDim, DimensionData.SPAWNTYPE.AIR);
+        aetherToEnd.belowY = -64;
+        aetherToEnd.aboveY = 4500;
+        aetherToEnd.slowFallDuration = 400;
+        aetherToEnd.teleportToYlevel = 80;
+        dimensionDataList.add(aetherToEnd);
+
+        // 3. Aether falling → Overworld (this is the one you want)
+        final DimensionData aetherToOw = new DimensionData(aetherDim, OVERWORLD.location(), DimensionData.SPAWNTYPE.AIR);
+        aetherToOw.belowY = 0;              // fall below Y=0 in Aether
+        aetherToOw.aboveY = 255;            // not used for falling
+        aetherToOw.slowFallDuration = 400;
+        aetherToOw.teleportToYlevel = 80;   // spawn Y in Overworld
+        dimensionDataList.add(aetherToOw);
+
+        // 4. The End falling → Aether
+        final DimensionData endToAether = new DimensionData(endDim, aetherDim, DimensionData.SPAWNTYPE.AIR);
+        endToAether.belowY = 0;
+        endToAether.slowFallDuration = 400;
+        endToAether.teleportToYlevel = 130;
+        dimensionDataList.add(endToAether);
+
+        // Your original Nether and other connections
         final DimensionData owToNether = new DimensionData(OVERWORLD.location(), Level.NETHER.location(), DimensionData.SPAWNTYPE.AIR);
         owToNether.belowY = -60;
         owToNether.xMult = 1.0 / 8;
@@ -37,12 +72,6 @@ public class CommonConfiguration implements ICommonConfig
         owToNether.slowFallDuration = 400;
         owToNether.teleportToYlevel = 125;
         dimensionDataList.add(owToNether);
-
-        final DimensionData endToOw = new DimensionData(END.location(), OVERWORLD.location(), DimensionData.SPAWNTYPE.AIR);
-        endToOw.belowY = 0;
-        endToOw.slowFallDuration = 400;
-        endToOw.teleportToYlevel = 300;
-        dimensionDataList.add(endToOw);
 
         final DimensionData netherToNether = new DimensionData(NETHER.location(), NETHER.location(), DimensionData.SPAWNTYPE.CAVE);
         netherToNether.belowY = 0;
@@ -56,13 +85,12 @@ public class CommonConfiguration implements ICommonConfig
         netherToOw.teleportToYlevel = -60;
         dimensionDataList.add(netherToOw);
 
-        final DimensionData owToOw = new DimensionData(OVERWORLD.location(), OVERWORLD.location(), DimensionData.SPAWNTYPE.AIR);
-        owToOw.aboveY = 364;
-        owToOw.teleportToYlevel = 360;
-        owToNether.slowFallDuration = 400;
-        dimensionDataList.add(owToOw);
+        final DimensionData endToOw = new DimensionData(END.location(), OVERWORLD.location(), DimensionData.SPAWNTYPE.AIR);
+        endToOw.belowY = 0;
+        endToOw.slowFallDuration = 400;
+        endToOw.teleportToYlevel = 300;
+        dimensionDataList.add(endToOw);
     }
-
     public JsonObject serialize()
     {
         final JsonObject root = new JsonObject();

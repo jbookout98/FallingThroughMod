@@ -24,170 +24,105 @@ import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
+import java.util.UUID;
+// Valkyrien Skies Imports
+import org.joml.Vector3dc;
+import org.joml.primitives.AABBi;
+import org.joml.primitives.AABBic;
+import org.joml.Vector3d;         // already there
+import org.valkyrienskies.core.api.ships.LoadedServerShip;
+import net.minecraft.world.phys.AABB;
+import org.valkyrienskies.core.api.ships.ServerShip;
+import org.valkyrienskies.core.api.ships.Ship;
+import org.valkyrienskies.mod.common.VSGameUtilsKt;
+import com.github.litermc.vtil.api.teleport.TeleportUtil;  // ← example — replace with the real one you see
+import org.joml.Vector3d;
+
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.chunk.LevelChunkSection;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.network.protocol.game.ClientboundLevelChunkWithLightPacket;
+import net.minecraft.server.level.ServerPlayer;
 
 import java.util.*;
 
-/**
- * Forge event bus handler, ingame events are fired here
- */
-public class EventHandler
-{
+public class EventHandler {
     public static final TicketType<ChunkPos> TELEPORT_TICKET = TicketType.create("forgivingworldTP", Comparator.comparingLong(ChunkPos::toLong), 20 * 60);
-
-    /**
-     * Time to tp in 4sec steps
-     */
-    private static final Integer            TP_TIME      = 10;
+    private static final Integer TP_TIME = 10;
     private static final Map<UUID, Integer> playerTpTime = new HashMap<>();
-    private static final Map<UUID, Long>    lastTpTime   = new HashMap<>();
+    private static final Map<UUID, Long> lastTpTime = new HashMap<>();
 
     @SubscribeEvent
-    public static void onPlayerTick(final TickEvent.PlayerTickEvent event)
-    {
+    public static void onPlayerTick(final TickEvent.PlayerTickEvent event) {
         final Player player = event.player;
-        if (player.level().isClientSide() || player.level().getGameTime() % 80 != 0 || player.isRemoved() || event.phase == TickEvent.Phase.START)
-        {
+
+        if (player.level().isClientSide() || player.level().getGameTime() % 20 != 0 || player.isRemoved() || event.phase == TickEvent.Phase.START) {
             return;
         }
 
+
         final Long lastTime = lastTpTime.get(player.getUUID());
-        if (lastTime != null && (System.currentTimeMillis() - lastTime) < 1000L * ForgivingWorldMod.config.getCommonConfig().teleportCooldown)
-        {
+        if (lastTime != null && (System.currentTimeMillis() - lastTime) < 1000L * ForgivingWorldMod.config.getCommonConfig().teleportCooldown) {
+            player.sendSystemMessage(Component.literal("§7[DEBUG TICK] Still on cooldown").withStyle(ChatFormatting.GRAY));
             return;
         }
 
         final List<DimensionData> dimensionTPs = ForgivingWorldMod.config.getCommonConfig().dimensionConnections.get(player.level().dimension().location());
 
-        if (dimensionTPs == null || dimensionTPs.isEmpty())
-        {
+        if (dimensionTPs == null || dimensionTPs.isEmpty()) {
             return;
         }
 
+
         DimensionData tp = null;
-        for (final DimensionData data : dimensionTPs)
-        {
-            if (data.shouldTP(player.getY()))
-            {
+        for (final DimensionData data : dimensionTPs) {
+            boolean should = data.shouldTP(player.getY());
+            if (should) {
                 tp = data;
                 break;
             }
         }
 
-        if (tp == null)
-        {
+        if (tp == null) {
             playerTpTime.remove(player.getUUID());
             return;
         }
 
-        if (ForgivingWorldMod.config.getCommonConfig().instantTeleport || player.getY() < tp.belowY && Math.abs(player.getY() - tp.belowY) > 15
-              || player.getY() > tp.aboveY && Math.abs(player.getY() - tp.aboveY) > 15)
-        {
+
+        if (ForgivingWorldMod.config.getCommonConfig().instantTeleport
+                || player.getY() < tp.belowY && Math.abs(player.getY() - tp.belowY) > 15
+                || player.getY() > tp.aboveY && Math.abs(player.getY() - tp.aboveY) > 15) {
             tryTpPlayer((ServerPlayer) player, tp);
+        } else {
+            int time = playerTpTime.computeIfAbsent(player.getUUID(), player2 -> 0) + 1;
+            playerTpTime.put(player.getUUID(), time);
 
-            for (final ResourceKey<Level> key : player.level().getServer().levelKeys())
-            {
-                if (key.location().equals(tp.to))
-                {
-                    final ChunkPos dimensionPos = new ChunkPos(tp.translatePosition(player.blockPosition()));
-                    player.level().getServer().getLevel(key).getChunkSource().addRegionTicket(TELEPORT_TICKET, dimensionPos, 3, dimensionPos);
-                    return;
+            ((ServerLevel) player.level()).sendParticles(ParticleTypes.SOUL_FIRE_FLAME, player.getX(), player.getY() + 1, player.getZ(), 50, 1, 0.5, 1, 0.05);
+
+            if (time == 1) {
+                player.sendSystemMessage(Component.translatable((player.getY() > tp.aboveY ? "forgivingworld.pullup" : "forgivingworld.pulldown")).withStyle(ChatFormatting.DARK_AQUA));
+            }
+
+            if (time > TP_TIME) {
+                if (tryTpPlayer((ServerPlayer) player, tp)) {
+                    playerTpTime.remove(player.getUUID());
                 }
-            }
-
-            return;
-        }
-
-        int time = playerTpTime.computeIfAbsent(player.getUUID(), player2 -> 0);
-        time += 1;
-        playerTpTime.put(player.getUUID(), time);
-
-        ((ServerLevel) player.level()).sendParticles(ParticleTypes.SOUL_FIRE_FLAME, player.getX(), player.getY() + 1, player.getZ(), 50, 1, 0.5, 1, 0.05);
-
-        if (time == 1)
-        {
-            player.sendSystemMessage(Component.translatable((player.getY() > tp.aboveY ? "forgivingworld.pullup" : "forgivingworld.pulldown"))
-              .withStyle(
-                ChatFormatting.DARK_AQUA));
-        }
-
-        if (time == 6)
-        {
-            player.sendSystemMessage(Component.translatable("forgivingworld.teleportsoon").withStyle(
-              ChatFormatting.DARK_PURPLE));
-
-
-            ServerLevel gotoWorld = null;
-            for (final ResourceKey<Level> key : player.level().getServer().levelKeys())
-            {
-                if (key.location().equals(tp.to))
-                {
-                    gotoWorld = player.level().getServer().getLevel(key);
-                    break;
-                }
-            }
-
-            if (gotoWorld != null)
-            {
-                final ChunkPos dimensionPos = new ChunkPos(tp.translatePosition(player.blockPosition()));
-                gotoWorld.getChunkSource().addRegionTicket(TELEPORT_TICKET, dimensionPos, 3, dimensionPos);
-            }
-        }
-
-        player.level().playSound(null,
-          player.getX(),
-          player.getY(),
-          player.getZ(),
-          SoundEvents.PORTAL_AMBIENT,
-          player.getSoundSource(),
-          0.5F,
-          2F + (ForgivingWorldMod.rand.nextFloat() - ForgivingWorldMod.rand.nextFloat()) * 0.2F);
-
-        if (time > TP_TIME)
-        {
-            if (tryTpPlayer((ServerPlayer) player, tp))
-            {
-                playerTpTime.remove(player.getUUID());
             }
         }
     }
 
     @SubscribeEvent
-    public static void onVoidDamageRecv(final LivingHurtEvent event)
-    {
-        if (event.getSource().is(DamageTypes.FELL_OUT_OF_WORLD))
-        {
-            if (!(event.getEntity() instanceof ServerPlayer) || event.getEntity().level().isClientSide)
-            {
-                return;
-            }
+    public static void onVoidDamageRecv(final LivingHurtEvent event) {
+        if (event.getSource().is(DamageTypes.FELL_OUT_OF_WORLD)) {
+            if (!(event.getEntity() instanceof ServerPlayer player) || player.level().isClientSide) return;
 
-            final ServerPlayer playerEntity = (ServerPlayer) event.getEntity();
+            final List<DimensionData> dimensions = ForgivingWorldMod.config.getCommonConfig().dimensionConnections.get(player.level().dimension().location());
+            if (dimensions == null) return;
 
-            final List<DimensionData> dimensions = ForgivingWorldMod.config.getCommonConfig().dimensionConnections.get(playerEntity.level().dimension().location());
-
-            if (dimensions == null || dimensions.isEmpty())
-            {
-                return;
-            }
-
-            for (final DimensionData data : dimensions)
-            {
-                if (playerEntity.getY() < data.belowY)
-                {
-                    for (final ResourceKey<Level> key : playerEntity.getServer().levelKeys())
-                    {
-                        if (key.location().equals(data.to))
-                        {
-                            // Forces chunk to load right away
-                            playerEntity.getServer()
-                              .getLevel(key)
-                              .getChunk(data.translatePosition(playerEntity.blockPosition()).getX() >> 4, data.translatePosition(playerEntity.blockPosition()).getZ() >> 4);
-                            break;
-                        }
-                    }
-
-                    if (tryTpPlayer(playerEntity, data))
-                    {
+            for (final DimensionData data : dimensions) {
+                if (player.getY() < data.belowY) {
+                    if (tryTpPlayer(player, data)) {
                         event.setAmount(0);
                         break;
                     }
@@ -196,166 +131,153 @@ public class EventHandler
         }
     }
 
-    /**
-     * Tries to tp the player
-     *
-     * @param playerEntity
-     * @return
-     */
-    private static boolean tryTpPlayer(final ServerPlayer playerEntity, DimensionData gotoDim)
-    {
-        if (playerEntity.isCreative() || playerEntity.isSpectator())
-        {
-            return false;
-        }
 
-        final ServerLevel world = (ServerLevel) playerEntity.level();
+    private static boolean tryTpPlayer(final ServerPlayer playerEntity, DimensionData gotoDim) {
+        playerEntity.sendSystemMessage(Component.literal("[DEBUG] tryTpPlayer STARTED → " + gotoDim.to + " | Player Y: " + playerEntity.getY()).withStyle(ChatFormatting.YELLOW));
 
-        if (gotoDim == null || !gotoDim.shouldTP(playerEntity.getY()))
-        {
-            return false;
-        }
+        try {
+            final ServerLevel world = (ServerLevel) playerEntity.level();
 
-        ServerLevel gotoWorld = null;
-        for (final ResourceKey<Level> key : world.getServer().levelKeys())
-        {
-            if (key.location().equals(gotoDim.to))
-            {
-                gotoWorld = world.getServer().getLevel(key);
-                break;
+            ServerLevel gotoWorld = null;
+            for (final ResourceKey<Level> key : world.getServer().levelKeys()) {
+                if (key.location().equals(gotoDim.to)) {
+                    gotoWorld = world.getServer().getLevel(key);
+                    break;
+                }
             }
-        }
+            if (gotoWorld == null) return false;
 
-        if (gotoWorld == null)
-        {
-            // Use same world?
-            return false;
-        }
+            final double x = playerEntity.getX();
+            final double z = playerEntity.getZ();
 
-        final Long lastTime = lastTpTime.get(playerEntity.getUUID());
-        if (lastTime != null && System.currentTimeMillis() - lastTime < ForgivingWorldMod.config.getCommonConfig().teleportCooldown * 1000)
-        {
-            return false;
-        }
+            double shipY = gotoDim.to.toString().contains("the_nether") ? 75.0 : 175.0;
 
-        BlockPos tpPos = gotoDim.getSpawnPos(gotoWorld, playerEntity.getX(), playerEntity.getZ());
-        if (tpPos == null)
-        {
-            if (ForgivingWorldMod.config.getCommonConfig().debuglogging)
-            {
-                ForgivingWorldMod.LOGGER.info(
-                  "Cannot find spawn pos in target dimension for player " + playerEntity.getDisplayName().getString() + "(" + playerEntity.getId() + ") from " + playerEntity.blockPosition().toShortString() + " in "
-                    + playerEntity.level().dimension().location()
-                    + " around: " + gotoDim.translatePosition(playerEntity.blockPosition()) + " in " + gotoWorld.dimension().location() +
-                    " with TP type:" + gotoDim.yspawn);
+            BlockPos tpPos = gotoDim.getSpawnPos(gotoWorld, x, z);
+            if (tpPos != null) shipY = tpPos.getY();
+
+            lastTpTime.put(playerEntity.getUUID(), System.currentTimeMillis());
+
+            Ship rawShip = null;
+            if (playerEntity.getVehicle() != null) rawShip = VSGameUtilsKt.getShipManagingPos(world, playerEntity.getVehicle().blockPosition());
+            if (rawShip == null) rawShip = VSGameUtilsKt.getShipManagingPos(world, playerEntity.blockPosition());
+            if (rawShip == null) rawShip = VSGameUtilsKt.getShipManagingPos(world, playerEntity.blockPosition().below());
+
+            if (rawShip != null) {
+                attemptShipTeleport(playerEntity, rawShip, gotoWorld, shipY, x, z);
             }
 
-            lastTpTime.put(playerEntity.getUUID(), (System.currentTimeMillis() - (ForgivingWorldMod.config.getCommonConfig().teleportCooldown * 1000L)) + 5000);
+            playerEntity.teleportTo(gotoWorld, x, shipY + 2.0, z, playerEntity.getYRot(), playerEntity.getXRot());
+
+            playerEntity.setDeltaMovement(0, -0.1, 0);
+            playerEntity.setOnGround(true);
+            playerEntity.fallDistance = 0;
+
+            if (gotoDim.slowFallDuration > 0) {
+                playerEntity.addEffect(new MobEffectInstance(MobEffects.SLOW_FALLING, gotoDim.slowFallDuration));
+            }
+
+            playerEntity.sendSystemMessage(Component.literal("§2[ ForgivingWorld ] Seamless jump — you + ship still riding at the helm!").withStyle(ChatFormatting.DARK_GREEN));
+            return true;
+
+        } catch (Exception e) {
+            e.printStackTrace();
             return false;
         }
+    }
 
-        lastTpTime.put(playerEntity.getUUID(), System.currentTimeMillis());
-
-        if (ForgivingWorldMod.config.getCommonConfig().debuglogging)
-        {
-            ForgivingWorldMod.LOGGER.info(
-              "Teleporting player " + playerEntity.getDisplayName().getString() + "(" + playerEntity.getId() + ") from " + playerEntity.blockPosition().toShortString() + " in "
-                + playerEntity.level().dimension().location()
-                + " to: " + tpPos.toShortString() + " in " + gotoWorld.dimension().location() +
-                " with TP type:" + gotoDim.yspawn);
+    private static void attemptShipTeleport(final ServerPlayer playerEntity, Ship rawShip, ServerLevel gotoWorld, double shipY, double x, double z) {
+        LoadedServerShip loadedShip = null;
+        if (rawShip instanceof LoadedServerShip l) {
+            loadedShip = l;
+        } else {
+            try {
+                long shipId = rawShip.getId();
+                var shipObjectWorld = VSGameUtilsKt.getShipObjectWorld(playerEntity.serverLevel());
+                if (shipObjectWorld != null) {
+                    loadedShip = shipObjectWorld.getLoadedShips().getById(shipId);
+                }
+            } catch (Exception ignored) {}
         }
 
-        ChunkPos chunkpos = new ChunkPos(tpPos);
-        gotoWorld.getChunkSource().addRegionTicket(TicketType.POST_TELEPORT, chunkpos, 1, playerEntity.getId());
+        if (rawShip != null) {
+            try {
+                Vector3d shipTarget = new Vector3d(x, shipY, z);
 
-        Entity vehicle = playerEntity.getVehicle();
-        if (vehicle != null && ForgivingWorldMod.config.getCommonConfig().teleportedRidden)
-        {
-            playerEntity.stopRiding();
+                if (loadedShip != null) {
+                    TeleportUtil.TeleportData data = new TeleportUtil.TeleportData(
+                            gotoWorld,
+                            shipTarget,
+                            loadedShip.getTransform().getShipToWorldRotation(),
+                            loadedShip.getVelocity(),
+                            loadedShip.getOmega()
+                    );
+                    TeleportUtil.teleportShip(loadedShip, data);
+                }
 
-            vehicle = dimensionTPEntity(vehicle, gotoWorld, tpPos.getX() + 0.5, tpPos.getY() + 1, tpPos.getZ() + 0.5, gotoDim.slowFallDuration);
+                clearSpaceAroundShip(gotoWorld, rawShip);
+
+                playerEntity.sendSystemMessage(Component.literal("[DEBUG] Ship placed under you (auto size based on longest AABB side)").withStyle(ChatFormatting.AQUA));
+            } catch (Exception ignored) {}
         }
+    }
 
-        final List<Mob> leashedMobs = new ArrayList<>();
+    private static void clearSpaceAroundShip(ServerLevel level, Ship ship) {
+        try {
+            org.joml.primitives.AABBic aabb = ship.getShipAABB();
 
-        if (ForgivingWorldMod.config.getCommonConfig().teleportLeashed)
-        {
-            for (Mob mob : world.getEntitiesOfClass(Mob.class,
-              new AABB(playerEntity.getX() - 7.0D,
-                playerEntity.getY() - 7.0D,
-                playerEntity.getZ() - 7.0D,
-                playerEntity.getX() + 7.0D,
-                playerEntity.getY() + 7.0D,
-                playerEntity.getZ() + 7.0D)))
-            {
-                if (mob.getLeashHolder() == playerEntity)
-                {
-                    final Entity entity = dimensionTPEntity(mob, gotoWorld, tpPos.getX() + 0.5, tpPos.getY() + 1, tpPos.getZ() + 0.5, gotoDim.slowFallDuration);
-                    if (entity instanceof Mob)
-                    {
-                        leashedMobs.add((Mob) entity);
+            // Calculate longest side of the ship
+            double width = aabb.maxX() - aabb.minX();
+            double height = aabb.maxY() - aabb.minY();
+            double depth = aabb.maxZ() - aabb.minZ();
+            double longestSide = Math.max(Math.max(width, height), depth);
+
+            int radius = (int) (longestSide / 2.0 + 3.0);
+
+            Vector3dc center = ship.getTransform().getPositionInWorld();
+            BlockPos centerPos = BlockPos.containing(center.x(), center.y(), center.z());
+
+            for (int dx = -radius; dx <= radius; dx++) {
+                for (int dy = -radius; dy <= radius; dy++) {
+                    for (int dz = -radius; dz <= radius; dz++) {
+                        BlockPos pos = centerPos.offset(dx, dy, dz);
+                        if (!level.isEmptyBlock(pos)) {
+                            level.setBlock(pos, Blocks.AIR.defaultBlockState(), 3);
+                        }
                     }
                 }
             }
+        } catch (Exception e) {
+            // ultra-safe fallback for any error
+            try {
+                Vector3dc pos = ship.getTransform().getPositionInWorld();
+                BlockPos center = BlockPos.containing(pos.x(), pos.y(), pos.z());
+                for (int dx = -25; dx <= 25; dx++) {
+                    for (int dy = -15; dy <= 60; dy++) {
+                        for (int dz = -25; dz <= 25; dz++) {
+                            BlockPos p = center.offset(dx, dy, dz);
+                            if (!level.isEmptyBlock(p)) {
+                                level.setBlock(p, Blocks.AIR.defaultBlockState(), 3);
+                            }
+                        }
+                    }
+                }
+            } catch (Exception ignored) {}
         }
-
-        if (playerEntity.isSleeping())
-        {
-            playerEntity.stopSleepInBed(true, true);
-        }
-
-        boolean prev = ForgivingWorldMod.config.getCommonConfig().disableVanillaPortals;
-        ForgivingWorldMod.config.getCommonConfig().disableVanillaPortals = false;
-        playerEntity.teleportTo(gotoWorld, tpPos.getX() + 0.5, tpPos.getY(), tpPos.getZ() + 0.5, playerEntity.getYRot(), playerEntity.getXRot());
-        ForgivingWorldMod.config.getCommonConfig().disableVanillaPortals = prev;
-        if (gotoDim.slowFallDuration > 0)
-        {
-            playerEntity.addEffect(new MobEffectInstance(MobEffects.SLOW_FALLING, gotoDim.slowFallDuration));
-        }
-
-        playerEntity.fallDistance = 0;
-
-        if (vehicle != null)
-        {
-            playerEntity.startRiding(vehicle);
-        }
-
-        for (final Mob mob : leashedMobs)
-        {
-            mob.setLeashedTo(playerEntity, true);
-        }
-
-        playerEntity.level().playSound(null,
-          playerEntity.getX(),
-          playerEntity.getY(),
-          playerEntity.getZ(),
-          SoundEvents.PORTAL_TRAVEL,
-          playerEntity.getSoundSource(),
-          1.0F,
-          2F + (ForgivingWorldMod.rand.nextFloat() - ForgivingWorldMod.rand.nextFloat()) * 0.2F);
-
-        return true;
     }
 
-    private static Entity dimensionTPEntity(final Entity original, final ServerLevel gotoWorld, final double x, final double y, final double z, final int slowFallDuration)
-    {
+    private static Entity dimensionTPEntity(final Entity original, final ServerLevel gotoWorld, final double x, final double y, final double z, final int slowFallDuration) {
         Entity entity = original.getType().create(gotoWorld);
-        if (entity != null)
-        {
+        if (entity != null) {
             entity.restoreFrom(original);
             original.remove(Entity.RemovalReason.CHANGED_DIMENSION);
-            if (slowFallDuration > 0 && entity instanceof Mob)
-            {
+            if (slowFallDuration > 0 && entity instanceof Mob) {
                 ((Mob) entity).addEffect(new MobEffectInstance(MobEffects.SLOW_FALLING, slowFallDuration));
             }
-
             entity.moveTo(x, y, z, entity.getYRot(), entity.getXRot());
             entity.setDeltaMovement(Vec3.ZERO);
-            gotoWorld.getChunk((int) x >> 4, (int) z >> 4);
             gotoWorld.addDuringTeleport(entity);
             return entity;
         }
-
         return null;
     }
 }
