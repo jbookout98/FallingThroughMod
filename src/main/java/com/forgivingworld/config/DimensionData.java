@@ -29,11 +29,8 @@ public class DimensionData
     /**
      * Dimension id we go to
      */
-    public final ResourceLocation from;
-    /**
-     * Dimension id we go to
-     */
-    public final ResourceLocation to;
+    public ResourceLocation from;
+    public ResourceLocation to;
 
     /**
      * Coordinate modifiers

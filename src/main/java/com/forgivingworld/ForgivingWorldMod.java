@@ -30,7 +30,6 @@ public class ForgivingWorldMod
     public static CupboardConfig<CommonConfiguration> config = new CupboardConfig<>(MODID, new CommonConfiguration());
     public static Random rand = new Random();
 
-    // === NETWORK CHANNEL (this fixes the NETWORK error) ===
     public static final SimpleChannel NETWORK = NetworkRegistry.newSimpleChannel(
             new ResourceLocation(MODID, "network"),
             () -> "1",

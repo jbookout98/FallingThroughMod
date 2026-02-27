@@ -7,99 +7,131 @@ import me.shedaniel.clothconfig2.api.ConfigEntryBuilder;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
+
+import java.util.ArrayList;
+import java.util.List;
 
 public class ForgivingWorldConfigScreen extends Screen {
     private final Screen parent;
-    private CommonConfiguration cfg;   // ← Class field so findConnection can see it
+    private CommonConfiguration cfg;
+    private List<DimensionData> tempList;
 
     public ForgivingWorldConfigScreen(Screen parent) {
         super(Component.literal("Forgiving World Config"));
         this.parent = parent;
     }
 
-    // Helper method - now works because cfg is a class field
-    private DimensionData findConnection(String fromDim, String toDim) {
-        return cfg.dimensionDataList.stream()
-                .filter(d -> fromDim.equals(d.from.toString()) && toDim.equals(d.to.toString()))
-                .findFirst()
-                .orElse(null);
-    }
-
     @Override
     protected void init() {
-        cfg = ForgivingWorldMod.config.getCommonConfig();   // ← Assign once here
+        cfg = ForgivingWorldMod.config.getCommonConfig();
+        tempList = new ArrayList<>(cfg.dimensionDataList);
 
         ConfigBuilder builder = ConfigBuilder.create()
                 .setParentScreen(parent)
                 .setTitle(Component.literal("Forgiving World - Dimension Stack"));
 
         ConfigEntryBuilder entryBuilder = builder.entryBuilder();
-        ConfigCategory category = builder.getOrCreateCategory(Component.literal("Vertical Stack Layers"));
+        ConfigCategory category = builder.getOrCreateCategory(Component.literal("Layers (Top = First)"));
 
-        // ==================== Overworld → Aether ====================
-        DimensionData owToAether = findConnection("minecraft:overworld", "aether:the_aether");
-        if (owToAether != null) {
-            category.addEntry(entryBuilder.startIntField(Component.literal("Overworld → Aether (above Y)"), owToAether.aboveY)
-                    .setDefaultValue(350).setMin(0).setMax(10000)
-                    .setSaveConsumer(value -> ForgivingWorldMod.NETWORK.sendToServer(
-                            new ConfigureUpdatePacket("minecraft:overworld", "aether:the_aether", value, owToAether.belowY, owToAether.teleportToYlevel)))
+        for (int i = 0; i < tempList.size(); i++) {
+            final int index = i;
+            DimensionData data = tempList.get(i);
+
+            String label = data.from + " → " + data.to;
+            category.addEntry(entryBuilder.startTextDescription(Component.literal("§e" + label)).build());
+
+            // From Dimension
+            category.addEntry(entryBuilder.startStrField(Component.literal("   From Dimension"), data.from.toString())
+                    .setDefaultValue(data.from.toString())
+                    .setSaveConsumer(str -> {
+                        data.from = new ResourceLocation(str);
+                        saveChanges();
+                    })
                     .build());
 
-            category.addEntry(entryBuilder.startIntField(Component.literal("Overworld → Aether Spawn Y"), owToAether.teleportToYlevel)
-                    .setDefaultValue(16).setMin(0).setMax(500)
-                    .setSaveConsumer(value -> ForgivingWorldMod.NETWORK.sendToServer(
-                            new ConfigureUpdatePacket("minecraft:overworld", "aether:the_aether", owToAether.aboveY, owToAether.belowY, value)))
+            // To Dimension
+            category.addEntry(entryBuilder.startStrField(Component.literal("   To Dimension"), data.to.toString())
+                    .setDefaultValue(data.to.toString())
+                    .setSaveConsumer(str -> {
+                        data.to = new ResourceLocation(str);
+                        saveChanges();
+                    })
                     .build());
+
+            // Above Y
+            category.addEntry(entryBuilder.startIntField(Component.literal("   Above Y (fly up)"), data.aboveY)
+                    .setDefaultValue(data.aboveY).setMin(-1000).setMax(10000)
+                    .setSaveConsumer(value -> { data.aboveY = value; saveChanges(); })
+                    .build());
+
+            // Below Y
+            category.addEntry(entryBuilder.startIntField(Component.literal("   Below Y (fall down)"), data.belowY)
+                    .setDefaultValue(data.belowY).setMin(-1000).setMax(10000)
+                    .setSaveConsumer(value -> { data.belowY = value; saveChanges(); })
+                    .build());
+
+            // Spawn Y
+            category.addEntry(entryBuilder.startIntField(Component.literal("   Spawn Y (landing height)"), data.teleportToYlevel)
+                    .setDefaultValue(data.teleportToYlevel).setMin(-1000).setMax(10000)
+                    .setSaveConsumer(value -> { data.teleportToYlevel = value; saveChanges(); })
+                    .build());
+
+            // Reorder and Remove buttons using your ButtonEntry
+            category.addEntry(new ButtonEntry(Component.literal("↑ Move Up"), () -> {
+                if (index > 0) {
+                    swapLayers(index, index - 1);
+                }
+            }));
+
+            category.addEntry(new ButtonEntry(Component.literal("↓ Move Down"), () -> {
+                if (index < tempList.size() - 1) {
+                    swapLayers(index, index + 1);
+                }
+            }));
+
+            category.addEntry(new ButtonEntry(Component.literal("Remove Layer"), () -> {
+                tempList.remove(index);
+                saveChanges();
+                Minecraft.getInstance().setScreen(new ForgivingWorldConfigScreen(parent));
+            }));
         }
 
-        // ==================== Aether → The End ====================
-        DimensionData aetherToEnd = findConnection("aether:the_aether", "minecraft:the_end");
-        if (aetherToEnd != null) {
-            category.addEntry(entryBuilder.startIntField(Component.literal("Aether → The End (above Y)"), aetherToEnd.aboveY)
-                    .setDefaultValue(4500).setMin(0).setMax(10000)
-                    .setSaveConsumer(value -> ForgivingWorldMod.NETWORK.sendToServer(
-                            new ConfigureUpdatePacket("aether:the_aether", "minecraft:the_end", value, aetherToEnd.belowY, aetherToEnd.teleportToYlevel)))
-                    .build());
+        // Add New Layer
+        category.addEntry(new ButtonEntry(Component.literal("Add New Layer"), () -> {
+            DimensionData newLayer = new DimensionData(
+                    new ResourceLocation("minecraft:overworld"),
+                    new ResourceLocation("minecraft:overworld"),
+                    DimensionData.SPAWNTYPE.AIR
+            );
+            newLayer.aboveY = 1000;
+            newLayer.belowY = -64;
+            newLayer.teleportToYlevel = 70;
+            newLayer.slowFallDuration = 400;
 
-            category.addEntry(entryBuilder.startIntField(Component.literal("Aether → The End Spawn Y"), aetherToEnd.teleportToYlevel)
-                    .setDefaultValue(80).setMin(0).setMax(500)
-                    .setSaveConsumer(value -> ForgivingWorldMod.NETWORK.sendToServer(
-                            new ConfigureUpdatePacket("aether:the_aether", "minecraft:the_end", aetherToEnd.aboveY, aetherToEnd.belowY, value)))
-                    .build());
-        }
-
-        // ==================== The End falling → Aether ====================
-        DimensionData endToAether = findConnection("minecraft:the_end", "aether:the_aether");
-        if (endToAether != null) {
-            category.addEntry(entryBuilder.startIntField(Component.literal("The End falling → Aether (below Y)"), endToAether.belowY)
-                    .setDefaultValue(0).setMin(0).setMax(10000)
-                    .setSaveConsumer(value -> ForgivingWorldMod.NETWORK.sendToServer(
-                            new ConfigureUpdatePacket("minecraft:the_end", "aether:the_aether", 255, value, endToAether.teleportToYlevel)))
-                    .build());
-
-            category.addEntry(entryBuilder.startIntField(Component.literal("The End → Aether Spawn Y"), endToAether.teleportToYlevel)
-                    .setDefaultValue(130).setMin(0).setMax(500)
-                    .setSaveConsumer(value -> ForgivingWorldMod.NETWORK.sendToServer(
-                            new ConfigureUpdatePacket("minecraft:the_end", "aether:the_aether", 255, endToAether.belowY, value)))
-                    .build());
-        }
-
-        // ==================== Aether falling → Overworld ====================
-        DimensionData aetherToOw = findConnection("aether:the_aether", "minecraft:overworld");
-        if (aetherToOw != null) {
-            category.addEntry(entryBuilder.startIntField(Component.literal("Aether falling → Overworld (below Y)"), aetherToOw.belowY)
-                    .setDefaultValue(0).setMin(0).setMax(10000)
-                    .setSaveConsumer(value -> ForgivingWorldMod.NETWORK.sendToServer(
-                            new ConfigureUpdatePacket("aether:the_aether", "minecraft:overworld", 255, value, aetherToOw.teleportToYlevel)))
-                    .build());
-
-            category.addEntry(entryBuilder.startIntField(Component.literal("Aether → Overworld Spawn Y"), aetherToOw.teleportToYlevel)
-                    .setDefaultValue(80).setMin(0).setMax(500)
-                    .setSaveConsumer(value -> ForgivingWorldMod.NETWORK.sendToServer(
-                            new ConfigureUpdatePacket("aether:the_aether", "minecraft:overworld", 255, aetherToOw.belowY, value)))
-                    .build());
-        }
+            tempList.add(newLayer);
+            saveChanges();
+            Minecraft.getInstance().setScreen(new ForgivingWorldConfigScreen(parent));
+        }));
 
         Minecraft.getInstance().setScreen(builder.build());
+    }
+
+    private void swapLayers(int i, int j) {
+        DimensionData temp = tempList.get(i);
+        tempList.set(i, tempList.get(j));
+        tempList.set(j, temp);
+        saveChanges();
+        Minecraft.getInstance().setScreen(new ForgivingWorldConfigScreen(parent));
+    }
+
+    private void saveChanges() {
+        cfg.dimensionDataList.clear();
+        cfg.dimensionDataList.addAll(tempList);
+        cfg.dimensionConnections.clear();
+        for (DimensionData d : cfg.dimensionDataList) {
+            cfg.dimensionConnections.computeIfAbsent(d.from, k -> new ArrayList<>()).add(d);
+        }
+        ForgivingWorldMod.config.save();
     }
 }
